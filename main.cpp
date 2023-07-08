@@ -1,12 +1,15 @@
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
+#include "src/Physics/Solver.hpp"
 #include <algorithm>
+#include <climits>
 #include <cstdlib>
 #include <exception>
 #include <iostream>
 #include <fstream>
 #include <random>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 #include <math.h>
 #include <chrono>
@@ -15,6 +18,7 @@ void processInput(GLFWwindow* window);
 unsigned int init_GL_Shader(std::string filePath, GLenum shaderType);
 unsigned int init_GL_Program(std::vector<unsigned int> shaders);
 void updateBuffer(uint &id, uint offset, void *data, uint size, GLenum shaderType);
+void buildCircle(float radius, int vCount, std::vector<float>& vertices);
 
 class GLFW_Wrapper
 {
@@ -58,6 +62,10 @@ public:
 int main()
 {
     GLFW_Wrapper glfw;
+    Solver solver;
+    std::vector<Circle> circles;
+
+
 
     try {
         glfw = GLFW_Wrapper(3, 3, 900, 900, "Physics Simulation");
@@ -71,17 +79,19 @@ int main()
     unsigned int vertexShader, fragmentShader, shaderProgram;
 
     try {
-        vertexShader = init_GL_Shader("GLSL/V1.glsl", GL_VERTEX_SHADER);
-        fragmentShader = init_GL_Shader("GLSL/F1.glsl", GL_FRAGMENT_SHADER);
+        vertexShader = init_GL_Shader("src/GLSL/V1.glsl", GL_VERTEX_SHADER);
+        fragmentShader = init_GL_Shader("src/GLSL/F1.glsl", GL_FRAGMENT_SHADER);
         shaderProgram = init_GL_Program(std::vector<unsigned int>{vertexShader, fragmentShader});
     } catch (std::runtime_error e) {
         std::cerr << e.what() << std::endl;
         return -1;
     }
 
+    
 
 
-    std::vector<float> vertices(10*9, 0.f);
+    // std::srand(100);
+    std::vector<float> vertices;
 
     unsigned int VAO, VBO;
     glGenVertexArrays(1, &VAO);
@@ -90,7 +100,7 @@ int main()
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0])*static_cast<uint>(vertices.size()), vertices.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float)*static_cast<uint>(vertices.size()), vertices.data(), GL_DYNAMIC_DRAW);
     
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
@@ -99,20 +109,32 @@ int main()
 
     glBindVertexArray(0);
 
+    circles.emplace_back(0,0,0,0.1,100,vertices);
+    circles.emplace_back(0.2,0,0,0.1,100,vertices);
+    solver.verletObjects.push_back(&circles[0]);
+    solver.verletObjects.push_back(&circles[1]);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float)*static_cast<uint>(vertices.size()), vertices.data(), GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
     // render loop
     //
     while(!glfwWindowShouldClose(window))
     {
+
         processInput(window);
+        
+        solver.Update();
         
         // rendering commands here
         //
-        glClearColor(0.2f, 0.3f, 0.2f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
 
         glBindVertexArray(VAO);
+        
         updateBuffer(VBO, 0, vertices.data(), sizeof(vertices[0])*static_cast<uint>(vertices.size()), GL_ARRAY_BUFFER);
         glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()));
 
