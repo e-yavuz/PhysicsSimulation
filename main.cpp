@@ -49,8 +49,9 @@ int main()
 
     
 
-    size_t maxVertexCount = 90000;
+    size_t maxVertexCount = 612*3000;
     std::vector<float> vertices;
+    vertices.reserve(maxVertexCount);
 
     unsigned int VAO, VBO;
     glGenVertexArrays(1, &VAO);
@@ -67,10 +68,7 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     glBindVertexArray(0);
-
-    solver.verletObjects.emplace_back(std::make_unique<Circle>(Circle(0.f,0,0,0.1,80,vertices)));
-    solver.verletObjects.back()->acceleration.x=2.f;
-    solver.verletObjects.back()->acceleration.y=2.f;
+    
     // render loop
     //
     int count = 0;
@@ -78,10 +76,21 @@ int main()
     {
         auto start = std::chrono::high_resolution_clock::now();
         glfw.processInput();
-        // if
         
+        if(count++ < 5000)
+        {
+            solver.verletObjects.emplace_back(std::make_unique<Circle>(Circle(-0.9f,0.7f,0,0.02,70,vertices)));
+            solver.verletObjects.back()->acceleration.x=0.5f;
+            solver.verletObjects.emplace_back(std::make_unique<Circle>(Circle(-0.9f,0.5f,0,0.02,70,vertices)));
+            solver.verletObjects.back()->acceleration.x=0.5f;
+            solver.verletObjects.emplace_back(std::make_unique<Circle>(Circle(-0.9f,0.3f,0,0.02,70,vertices)));
+            solver.verletObjects.back()->acceleration.x=0.5f;
+        }
+        // std::cout << count*3 << "\n";
         
-        solver.Update(10);
+
+
+        solver.Update(8);
         
         // rendering commands here
         //
@@ -105,6 +114,7 @@ int main()
         std::this_thread::sleep_for(17ms-end);
         
     }
+    // std::cout << count <<"\n";
 
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
