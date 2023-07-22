@@ -1,6 +1,9 @@
+#ifndef GLFW_WRAPPER_H
+#define GLFW_WRAPPER_H
 // @ts-nocheck
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
+#include <climits>
 #include <stdexcept>
 #include <vector>
 #include <string>
@@ -100,7 +103,7 @@ public:
         return shaderProgram;
     }
 
-    inline void updateBuffer(uint &id, uint offset, void *data, uint size, GLenum shaderType) 
+    static inline void updateBuffer(uint &id, uint offset, void *data, uint size, GLenum shaderType) 
     {
         glBindBuffer(shaderType, id);
         glBufferSubData(shaderType, offset, size, data);
@@ -109,3 +112,68 @@ public:
     GLFWwindow* window;
 };
 
+template<typename T1>
+class VertexContainer
+{
+    public: 
+        VertexContainer(unsigned int VBO, uint sz) : sz(sz), VBO(VBO)
+        {
+            resize(sz);
+            glBindBuffer(GL_ARRAY_BUFFER, VBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(T1)*capacity, data.data(), GL_DYNAMIC_DRAW);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(T1), (void*)0);
+            glEnableVertexAttribArray(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+        }
+        VertexContainer(unsigned int VBO, uint sz, T1 val) : sz(sz), VBO(VBO)
+        {
+            resize(sz, val);
+            glBindBuffer(GL_ARRAY_BUFFER, VBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(T1)*capacity, data.data(), GL_DYNAMIC_DRAW);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(T1), (void*)0);
+            glEnableVertexAttribArray(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+        }
+        VertexContainer(unsigned int VBO) : sz(0), VBO(VBO) 
+        {
+            glBindBuffer(GL_ARRAY_BUFFER, VBO);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(T1)*capacity, data.data(), GL_DYNAMIC_DRAW);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(T1), (void*)0);
+            glEnableVertexAttribArray(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+        }
+
+        size_t size() { return sz; }
+
+        void reserve(size_t sz) { data.reserve(sz); capacity = sz;}
+        void resize(size_t sz) { data.resize(sz); this->sz = sz; capacity = sz;}
+        void resize(size_t sz, T1 elm) { data.resize(sz, elm); this->sz = sz; capacity = sz;}
+        void push_back(T1 elm)
+        {
+            
+            if(++sz > capacity/3)
+            {
+                if(capacity >= UINT_MAX/2) capacity = UINT_MAX;
+                else capacity*=2;
+                glBindBuffer(GL_ARRAY_BUFFER, VBO);
+                glBufferData(GL_ARRAY_BUFFER, sizeof(T1)*capacity, data.data(), GL_DYNAMIC_DRAW);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+            }
+            data.push_back(elm);
+        }
+
+        T1& operator[](size_t idx) { return data[idx]; }
+
+        void updateBuffer(uint offset)
+        {
+            GLFW_Wrapper::updateBuffer(VBO, offset, data.data(), sizeof(T1)*sz, GL_ARRAY_BUFFER);
+        }
+        std::vector<T1> data;
+        friend class GLFW_Wrapper;
+    private:
+        uint sz;
+        uint capacity = 3;
+        unsigned int VBO;
+};
+
+#endif

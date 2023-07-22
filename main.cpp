@@ -39,54 +39,40 @@ int main()
     unsigned int vertexShader, fragmentShader, shaderProgram;
 
     try {
-        vertexShader = glfw.init_GL_Shader("src/GLSL/V1.glsl", GL_VERTEX_SHADER);
-        fragmentShader = glfw.init_GL_Shader("src/GLSL/F1.glsl", GL_FRAGMENT_SHADER);
+        vertexShader = glfw.init_GL_Shader("src/Shaders/V1.glsl", GL_VERTEX_SHADER);
+        fragmentShader = glfw.init_GL_Shader("src/Shaders/F1.glsl", GL_FRAGMENT_SHADER);
         shaderProgram = glfw.init_GL_Program(std::vector<unsigned int>{vertexShader, fragmentShader});
     } catch (std::runtime_error e) {
         std::cerr << e.what() << std::endl;
         return -1;
     }
 
-    
-
-    size_t maxVertexCount = 612*3000;
-    std::vector<float> vertices;
-    vertices.reserve(maxVertexCount);
-
     unsigned int VAO, VBO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
 
+    
+
     glBindVertexArray(VAO);
 
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float)*static_cast<uint>(maxVertexCount), vertices.data(), GL_DYNAMIC_DRAW);
-    
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    VertexContainer<float> vertices(VBO);
 
     glBindVertexArray(0);
     
     // render loop
     //
-    int count = 0;
+    int not60FPSCount = 0;
     while(!glfwWindowShouldClose(glfw.window))
     {
         auto start = std::chrono::high_resolution_clock::now();
         glfw.processInput();
         
-        if(count++ < 5000)
+        if(solver.verletObjects.size() < 10000)
         {
-            solver.verletObjects.emplace_back(std::make_unique<Circle>(Circle(-0.9f,0.7f,0,0.02,70,vertices)));
-            solver.verletObjects.back()->acceleration.x=0.5f;
-            solver.verletObjects.emplace_back(std::make_unique<Circle>(Circle(-0.9f,0.5f,0,0.02,70,vertices)));
-            solver.verletObjects.back()->acceleration.x=0.5f;
-            solver.verletObjects.emplace_back(std::make_unique<Circle>(Circle(-0.9f,0.3f,0,0.02,70,vertices)));
-            solver.verletObjects.back()->acceleration.x=0.5f;
+            Circle object(-0.9f,0.7f,0,0.01,80,vertices);
+            solver.addObject<Circle>(object);
+            solver.verletObjects.back()->acceleration.x=0.2f;
         }
-        // std::cout << count*3 << "\n";
         
 
 
@@ -101,7 +87,7 @@ int main()
 
         glBindVertexArray(VAO);
         
-        glfw.updateBuffer(VBO, 0, vertices.data(), sizeof(float)*static_cast<uint>(vertices.size()), GL_ARRAY_BUFFER);
+        vertices.updateBuffer(0);
         glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size()));
 
         // check and call events and swap the buffers
@@ -111,10 +97,16 @@ int main()
 
         auto end = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()-start);
 
+        if(not60FPSCount > 50)
+            break;
+        not60FPSCount = end.count() > 17?not60FPSCount+1:0;
+        
+
         std::this_thread::sleep_for(17ms-end);
         
     }
-    // std::cout << count <<"\n";
+    std::cout << solver.verletObjects.size() <<"\n";
+    std::cout << solver.spatialHash.size();
 
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);

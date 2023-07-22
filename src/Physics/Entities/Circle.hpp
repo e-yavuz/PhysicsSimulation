@@ -3,10 +3,13 @@
 
 #include "VerletObject.hpp"
 
+template<typename T>
+class VertexContainer;
+
 class Circle : public VerletObject
 {
 public:
-    Circle(float x, float y, float z, float radius, int vCount, std::vector<float>& vertices) : VerletObject(x, y, z), p_verticies(&vertices)
+    Circle(float x, float y, float z, float radius, int vCount, VertexContainer<float>& vertices) : VerletObject(x, y, z), p_verticies(&vertices)
     {
         this->radius = radius;
         start_ind = p_verticies->size();
@@ -69,7 +72,7 @@ public:
     float radius;
     size_t start_ind;
     size_t end_ind;
-    std::vector<float>* p_verticies;
+    VertexContainer<float>* p_verticies;
 };
 
 #endif
