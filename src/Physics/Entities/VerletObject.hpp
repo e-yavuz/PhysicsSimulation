@@ -45,12 +45,10 @@ struct vertex
 class VerletObject
 {
 public:
-    VerletObject(float x, float y, float z) : positionCurrent(x, y, z), positionOld(x, y, z), acceleration(0,0,0) {}
-    virtual ~VerletObject() {}
 
     // x(n+1) = 2*x(n)-x(n-1) + a(n)*dt^2
     //
-    void Update(float dt)
+    static void Update(vertex& positionCurrent, vertex& positionOld, vertex& acceleration, float dt)
     {
         vertex velocity = positionCurrent - positionOld;
 
@@ -59,11 +57,15 @@ public:
         positionCurrent = positionCurrent + velocity + acceleration * (dt * dt);
     }
 
-    virtual void UpdateVerticies() = 0;
-
-    vertex positionCurrent;
-    vertex positionOld;
-    vertex acceleration;
+    static void UpdateVerticies(vertex velocity, std::pair<uint32_t, uint32_t> vertexIndicies, std::vector<float>& verticies)
+    {
+        for(int i = vertexIndicies.first; i < vertexIndicies.second; i+=3)
+        {
+            verticies[i] += velocity.x;
+            verticies[i+1] += velocity.y;
+            verticies[i+2] += velocity.z;
+        }
+    }
 };
 
 #endif

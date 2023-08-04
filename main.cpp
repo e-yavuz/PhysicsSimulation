@@ -57,6 +57,8 @@ int main()
 
     VertexContainer<float> vertices(VBO);
 
+    solver.vertices = &vertices;
+
     glBindVertexArray(0);
     
     // render loop
@@ -67,11 +69,10 @@ int main()
         auto start = std::chrono::high_resolution_clock::now();
         glfw.processInput();
         
-        if(solver.verletObjects.size() < 10000)
+        if(solver.objectsCurrentPosition.size() < 10000)
         {
-            Circle object(-0.9f,0.7f,0,0.01,80,vertices);
-            solver.addObject<Circle>(object);
-            solver.verletObjects.back()->acceleration.x=0.2f;
+            solver.addCircle(-0.9f,0.7f,0,0.01,80);
+            solver.objectsAcceleration.back().x=0.2f;
         }
         
 
@@ -105,8 +106,8 @@ int main()
         std::this_thread::sleep_for(17ms-end);
         
     }
-    std::cout << solver.verletObjects.size() <<"\n";
-    std::cout << solver.spatialHash.size();
+    std::cout << solver.objectsCurrentPosition.size() <<"\n";
+    // std::cout << solver.spatialHash.size();
 
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);

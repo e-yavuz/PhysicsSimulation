@@ -7,6 +7,9 @@
 #include <unordered_map>
 #include <utility>
 
+template<typename T>
+class VertexContainer;
+
 #define gravity vertex(0, -0.001f, 0)
 
 class Solver{
@@ -23,33 +26,35 @@ public:
         }
     }
 
-    template<typename T1>
-    void addObject(T1& object)
+    void addCircle(float x, float y, float z, float radius, int vCount)
     {
-        verletObjects.emplace_back(std::make_unique<T1>(object));
+        vertex currentPosition = objectsCurrentPosition.emplace_back(x,y,z);
+        objectsOldPosition.emplace_back(x,y,z);
+        objectsAcceleration.emplace_back(0,0,0);
+        circlesRadii.push_back(radius);
+        uint32_t start_ind = vertices->size();
+        Circle::buildCircle(currentPosition, radius, vCount, vertices);
+        uint32_t end_ind = vertices->size();
+        objectsVertexIndicies.emplace_back(start_ind, end_ind);
     }
 
-    struct CustomHash {
-        template <typename T1, typename T2>
-        inline auto operator()(const std::pair<T1, T2> &p) const -> size_t 
-        {
-            return p.first*6557 + p.second;
-        }
-    };
+    std::vector<vertex> objectsCurrentPosition;
+    std::vector<vertex> objectsOldPosition;
+    std::vector<vertex> objectsAcceleration;
+    std::vector<float> circlesRadii;
+    std::vector<std::pair<uint32_t, uint32_t>> objectsVertexIndicies;
+    VertexContainer<float>* vertices;
 
-    std::vector<std::unique_ptr<VerletObject>> verletObjects;
-    std::unordered_map<std::pair<int, int>, std::vector<size_t>, CustomHash> spatialHash;
     constexpr const static float spatialHashGranularity = 0.025;
 private:
 
     void applyConstraints()
     {
         vertex center(0,0,0);
-        for(std::unique_ptr<VerletObject>& object: verletObjects)
+        for(int i = 0; i < objectsCurrentPosition.size(); i++)
         {
-            Circle* c = dynamic_cast<Circle*>(object.get());
-            vertex& current = object->positionCurrent;
-            float boundary = 1.0f-c->radius;
+            vertex& current = objectsCurrentPosition[i];
+            float boundary = 1.0f-circlesRadii[i];
 
             if(current.x > boundary)
                 current.x = boundary-(current.x-boundary);
@@ -70,89 +75,98 @@ private:
 
     void applyCollision()
     {
-        applySpatialHash();
-        for(auto& entry: spatialHash)
-        {
-            int x = entry.first.first;
-            int y = entry.first.second;
-            for(size_t objectIndex: entry.second)
-            {
-                std::unique_ptr<VerletObject>& object = verletObjects[objectIndex];
-                checkSpatialHash(x, y, object);
+        // applySpatialHash();
+        // for(auto& entry: spatialHash)
+        // {
+        //     int x = entry.first.first;
+        //     int y = entry.first.second;
+        //     for(size_t objectIndex: entry.second)
+        //     {
+        //         std::unique_ptr<VerletObject>& object = verletObjects[objectIndex];
+        //         checkSpatialHash(x, y, object);
 
-                checkSpatialHash(x, y+1, object);
-                checkSpatialHash(x, y-1, object);
+        //         checkSpatialHash(x, y+1, object);
+        //         checkSpatialHash(x, y-1, object);
 
-                checkSpatialHash(x+1, y, object);
-                checkSpatialHash(x-1, y, object);
+        //         checkSpatialHash(x+1, y, object);
+        //         checkSpatialHash(x-1, y, object);
 
-                checkSpatialHash(x+1, y+1, object);
-                checkSpatialHash(x-1, y+1, object);
+        //         checkSpatialHash(x+1, y+1, object);
+        //         checkSpatialHash(x-1, y+1, object);
 
-                checkSpatialHash(x+1, y-1, object);
-                checkSpatialHash(x-1, y-1, object);
-            }
-        }
+        //         checkSpatialHash(x+1, y-1, object);
+        //         checkSpatialHash(x-1, y-1, object);
+        //     }
+        // }
 
         // O(n^2) solution
-        // for(std::unique_ptr<VerletObject>& object: verletObjects)
-        //     for(std::unique_ptr<VerletObject>& other: verletObjects)
-        //         checkCollision(object, other);
+        for(uint32_t i = 0; i < objectsCurrentPosition.size(); i++)
+            for(uint32_t j = 0; j < objectsCurrentPosition.size(); j++)
+                checkCollision(i, j);
     }
 
-    void checkSpatialHash(int x, int y, std::unique_ptr<VerletObject>& object)
+    // void checkSpatialHash(int x, int y, std::unique_ptr<VerletObject>& object)
+    // {
+    //     if(spatialHash.find({x,y}) == spatialHash.end()) return;
+
+    //     std::vector<size_t>& otherVector = spatialHash[{x,y}];
+
+    //     for(int i = 0; i < spatialHash[{x,y}].size(); i++)
+    //         checkCollision(object, verletObjects[spatialHash[{x,y}][i]]);
+    // }
+
+    inline void checkCollision(uint32_t objectIndex, uint32_t otherIndex)
     {
-        if(spatialHash.find({x,y}) == spatialHash.end()) return;
+        if(objectIndex == otherIndex) return;
+        float objectRadius = circlesRadii[objectIndex];
+        float otherRadius = circlesRadii[otherIndex];
 
-        std::vector<size_t>& otherVector = spatialHash[{x,y}];
+        vertex objectPosition = objectsCurrentPosition[objectIndex];
+        vertex otherPosition = objectsCurrentPosition[otherIndex];
 
-        for(int i = 0; i < spatialHash[{x,y}].size(); i++)
-            checkCollision(object, verletObjects[spatialHash[{x,y}][i]]);
+        float distance = objectPosition.distance(otherPosition);
+
+        if(distance < (objectRadius+otherRadius))
+            objectsCurrentPosition[objectIndex] = objectPosition - (objectPosition-otherPosition)*(distance-(objectRadius+otherRadius));
     }
 
-    inline void checkCollision(std::unique_ptr<VerletObject>& object, std::unique_ptr<VerletObject>& other)
-    {
-        if(object == other) return;
-        float radius = dynamic_cast<Circle*>(object.get())->radius;
+    // void applySpatialHash()
+    // {
+    //     spatialHash.clear();
 
-        float distance = object->positionCurrent.distance(other->positionCurrent);
+    //     //Parse through verletObjects, adding (usually re-adding) the objects into the hashmap
+    //     for(size_t i = 0; i < verletObjects.size(); i++)
+    //     {
+    //         int x = int(verletObjects[i]->positionCurrent.x/spatialHashGranularity);
+    //         int y = int(verletObjects[i]->positionCurrent.y/spatialHashGranularity);
 
-        if(distance < (radius)*2)
-            object->positionCurrent = object->positionCurrent - (object->positionCurrent-other->positionCurrent)*(distance-((radius)*2));
-    }
-
-    void applySpatialHash()
-    {
-        spatialHash.clear();
-
-        //Parse through verletObjects, adding (usually re-adding) the objects into the hashmap
-        for(size_t i = 0; i < verletObjects.size(); i++)
-        {
-            int x = int(verletObjects[i]->positionCurrent.x/spatialHashGranularity);
-            int y = int(verletObjects[i]->positionCurrent.y/spatialHashGranularity);
-
-            if(spatialHash.find({x, y}) != spatialHash.end())
-                spatialHash[{x,y}].push_back(i);
-            else
-                spatialHash[{x,y}] = std::vector<size_t>{i};
-        }
-    }
+    //         if(spatialHash.find({x, y}) != spatialHash.end())
+    //             spatialHash[{x,y}].push_back(i);
+    //         else
+    //             spatialHash[{x,y}] = std::vector<size_t>{i};
+    //     }
+    // }
 
     void applyDraw()
     {
-        for(std::unique_ptr<VerletObject>& object: verletObjects)
-                object->UpdateVerticies();
+        for(int i = 0; i < objectsCurrentPosition.size(); i++)
+            VerletObject::UpdateVerticies(objectsCurrentPosition[i]-objectsOldPosition[i], 
+            objectsVertexIndicies[i],
+            vertices->data);
     }
 
     void applyGravity()
     {
-        for(std::unique_ptr<VerletObject>& object: verletObjects)
-            object->acceleration = gravity;
+        for(int i = 0; i < objectsAcceleration.size(); i++)
+            objectsAcceleration[i] = gravity;
     }
     void applyUpdate(float dt)
     {
-        for(std::unique_ptr<VerletObject>& object: verletObjects)
-            object->Update(dt);
+        for(int i = 0; i < objectsCurrentPosition.size(); i++)
+            VerletObject::Update(objectsCurrentPosition[i], 
+            objectsOldPosition[i], 
+            objectsAcceleration[i], 
+            dt);
     }
 };
 

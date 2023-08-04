@@ -151,7 +151,7 @@ class VertexContainer
         void push_back(T1 elm)
         {
             
-            if(++sz > capacity/3)
+            if(++sz > capacity/4)
             {
                 if(capacity >= UINT_MAX/2) capacity = UINT_MAX;
                 else capacity*=2;
@@ -171,8 +171,8 @@ class VertexContainer
         std::vector<T1> data;
         friend class GLFW_Wrapper;
     private:
-        uint sz;
-        uint capacity = 3;
+        uint32_t sz;
+        uint32_t capacity = 50000;
         unsigned int VBO;
 };
 

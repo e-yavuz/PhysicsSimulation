@@ -37,3 +37,4 @@ Makefile
 #Documents
 *.pdf
 *.json
+debug.dSYM/Contents/Resources/DWARF/debug
