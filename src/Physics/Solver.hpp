@@ -10,7 +10,10 @@
 template<typename T>
 class VertexContainer;
 
-#define gravity vertex(0, -0.001f, 0)
+#define GRAVITY vertex(0, -0.001f, 0)
+#define SPATIAL_HASH_GRANULARITY float(0.05f)
+#define SPATIAL_HASH_TABLE_DIM_SIZE (int32_t(2.0f/SPATIAL_HASH_GRANULARITY))
+#define SPATIAL_HASH_LOOKUP_TABLE_SIZE int32_t(SPATIAL_HASH_TABLE_DIM_SIZE*SPATIAL_HASH_TABLE_DIM_SIZE*2)
 
 class Solver{
 public:
@@ -19,6 +22,7 @@ public:
         for(int i = 0; i < subSteps; i++)
         {
             applyUpdate(1.0f/subSteps);
+            applyConstraints();
             applyCollision();
             applyGravity();
             applyConstraints();
@@ -42,12 +46,15 @@ public:
     std::vector<vertex> objectsOldPosition;
     std::vector<vertex> objectsAcceleration;
     std::vector<float> circlesRadii;
+    std::vector<uint32_t> spatialHashIndicies;
+    // MxM spatial Hash Lookup Table where [0] reperesents start in spatialHashIndicies 
+    // and [1] represents the size
+    uint32_t spatialHashLookupTable_A[SPATIAL_HASH_LOOKUP_TABLE_SIZE];
+    uint32_t spatialHashLookupTable_B[SPATIAL_HASH_LOOKUP_TABLE_SIZE];
+    uint32_t* spatialHashLookupTable_ptr;
     std::vector<std::pair<uint32_t, uint32_t>> objectsVertexIndicies;
     VertexContainer<float>* vertices;
-
-    constexpr const static float spatialHashGranularity = 0.025;
 private:
-
     void applyConstraints()
     {
         vertex center(0,0,0);
@@ -75,45 +82,49 @@ private:
 
     void applyCollision()
     {
-        // applySpatialHash();
-        // for(auto& entry: spatialHash)
-        // {
-        //     int x = entry.first.first;
-        //     int y = entry.first.second;
-        //     for(size_t objectIndex: entry.second)
-        //     {
-        //         std::unique_ptr<VerletObject>& object = verletObjects[objectIndex];
-        //         checkSpatialHash(x, y, object);
+        // Spatial Hash CPU solution
+        applySpatialHash();
+        for(uint32_t y = 0; y < SPATIAL_HASH_TABLE_DIM_SIZE; y++)
+        {
+            for(uint32_t x = 0; x < SPATIAL_HASH_TABLE_DIM_SIZE; x++)
+            {
+                uint32_t spatialIndex = (y*SPATIAL_HASH_TABLE_DIM_SIZE*2) + (x*2);
+                for(int32_t i = spatialHashLookupTable_ptr[spatialIndex]; i < spatialHashLookupTable_ptr[spatialIndex]+spatialHashLookupTable_ptr[spatialIndex+1]; i++)
+                {
+                    int32_t objectIndex = spatialHashIndicies[i];
+                    checkSpatialHash(x, y, objectIndex);
 
-        //         checkSpatialHash(x, y+1, object);
-        //         checkSpatialHash(x, y-1, object);
+                    checkSpatialHash(x, y+1, objectIndex);
+                    checkSpatialHash(x, y-1, objectIndex);
 
-        //         checkSpatialHash(x+1, y, object);
-        //         checkSpatialHash(x-1, y, object);
+                    checkSpatialHash(x+1, y, objectIndex);
+                    checkSpatialHash(x-1, y, objectIndex);
 
-        //         checkSpatialHash(x+1, y+1, object);
-        //         checkSpatialHash(x-1, y+1, object);
+                    checkSpatialHash(x+1, y+1, objectIndex);
+                    checkSpatialHash(x-1, y+1, objectIndex);
 
-        //         checkSpatialHash(x+1, y-1, object);
-        //         checkSpatialHash(x-1, y-1, object);
-        //     }
-        // }
+                    checkSpatialHash(x+1, y-1, objectIndex);
+                    checkSpatialHash(x-1, y-1, objectIndex);
+                }
+            }
+        }
 
         // O(n^2) solution
-        for(uint32_t i = 0; i < objectsCurrentPosition.size(); i++)
-            for(uint32_t j = 0; j < objectsCurrentPosition.size(); j++)
-                checkCollision(i, j);
+        // for(uint32_t i = 0; i < objectsCurrentPosition.size(); i++)
+        //     for(uint32_t j = 0; j < objectsCurrentPosition.size(); j++)
+        //         checkCollision(i, j);
     }
 
-    // void checkSpatialHash(int x, int y, std::unique_ptr<VerletObject>& object)
-    // {
-    //     if(spatialHash.find({x,y}) == spatialHash.end()) return;
+    void checkSpatialHash(uint32_t x, uint32_t y, uint32_t objectIndex)
+    {
+        if(x < 0 || x >= SPATIAL_HASH_TABLE_DIM_SIZE) return;
+        if(y < 0 || y >= SPATIAL_HASH_TABLE_DIM_SIZE) return;
 
-    //     std::vector<size_t>& otherVector = spatialHash[{x,y}];
+        uint32_t spatialIndex = (y*SPATIAL_HASH_TABLE_DIM_SIZE*2) + (x*2);
 
-    //     for(int i = 0; i < spatialHash[{x,y}].size(); i++)
-    //         checkCollision(object, verletObjects[spatialHash[{x,y}][i]]);
-    // }
+        for(int32_t i = spatialHashLookupTable_ptr[spatialIndex]; i < spatialHashLookupTable_ptr[spatialIndex]+spatialHashLookupTable_ptr[spatialIndex+1]; i++)
+            checkCollision(objectIndex, spatialHashIndicies[i]);
+    }
 
     inline void checkCollision(uint32_t objectIndex, uint32_t otherIndex)
     {
@@ -130,22 +141,47 @@ private:
             objectsCurrentPosition[objectIndex] = objectPosition - (objectPosition-otherPosition)*(distance-(objectRadius+otherRadius));
     }
 
-    // void applySpatialHash()
-    // {
-    //     spatialHash.clear();
+    void applySpatialHash()
+    {
+        uint32_t* REPLACEMENT_spatialHashLookupTable_ptr;
+        if(spatialHashLookupTable_ptr == spatialHashLookupTable_A)
+            REPLACEMENT_spatialHashLookupTable_ptr = &spatialHashLookupTable_B[0];
+        else
+            REPLACEMENT_spatialHashLookupTable_ptr = &spatialHashLookupTable_A[0];
+        std::fill_n(REPLACEMENT_spatialHashLookupTable_ptr, SPATIAL_HASH_LOOKUP_TABLE_SIZE, 0);
+        // Remake spatial Hash Indicies Table, but with extra +1 at end 
+        // to allow for future addition of an element
+        std::vector<uint32_t> new_SpatialHashIndicies(objectsCurrentPosition.size()+1);
 
-    //     //Parse through verletObjects, adding (usually re-adding) the objects into the hashmap
-    //     for(size_t i = 0; i < verletObjects.size(); i++)
-    //     {
-    //         int x = int(verletObjects[i]->positionCurrent.x/spatialHashGranularity);
-    //         int y = int(verletObjects[i]->positionCurrent.y/spatialHashGranularity);
 
-    //         if(spatialHash.find({x, y}) != spatialHash.end())
-    //             spatialHash[{x,y}].push_back(i);
-    //         else
-    //             spatialHash[{x,y}] = std::vector<size_t>{i};
-    //     }
-    // }
+
+        // Iterate through objectCurrentPositions, updating the new LookupTable sizes
+        for(vertex& objectPosition: objectsCurrentPosition)
+        {
+            int32_t x = int32_t((objectPosition.x+1.0f)/SPATIAL_HASH_GRANULARITY);
+            int32_t y = int32_t((objectPosition.y+1.0f)/SPATIAL_HASH_GRANULARITY);
+            REPLACEMENT_spatialHashLookupTable_ptr[(y*SPATIAL_HASH_TABLE_DIM_SIZE*2)+(x*2)]++;
+            REPLACEMENT_spatialHashLookupTable_ptr[(y*SPATIAL_HASH_TABLE_DIM_SIZE*2)+(x*2)+1]++;
+        }
+
+        // Iterate through LookupTable, setting serially each indicies' starting position
+        // kind of like the fibonacci sequence but with an extra, random number for each element
+        for(uint32_t i = 2; i < SPATIAL_HASH_LOOKUP_TABLE_SIZE; i+=2)
+            REPLACEMENT_spatialHashLookupTable_ptr[i] += REPLACEMENT_spatialHashLookupTable_ptr[i-2];
+
+        for(int32_t i = 0; i < objectsCurrentPosition.size(); i++)
+        {
+            vertex& objectPosition = objectsCurrentPosition[i];
+            int32_t x = int32_t((objectPosition.x+1.0f)/SPATIAL_HASH_GRANULARITY);
+            int32_t y = int32_t((objectPosition.y+1.0f)/SPATIAL_HASH_GRANULARITY);
+            int32_t insert_position = --REPLACEMENT_spatialHashLookupTable_ptr[(y*SPATIAL_HASH_TABLE_DIM_SIZE*2)+(x*2)];
+            new_SpatialHashIndicies[insert_position] = i;
+        }
+
+        spatialHashIndicies = new_SpatialHashIndicies;
+        spatialHashLookupTable_ptr = REPLACEMENT_spatialHashLookupTable_ptr;
+
+    }
 
     void applyDraw()
     {
@@ -158,7 +194,7 @@ private:
     void applyGravity()
     {
         for(int i = 0; i < objectsAcceleration.size(); i++)
-            objectsAcceleration[i] = gravity;
+            objectsAcceleration[i] = GRAVITY;
     }
     void applyUpdate(float dt)
     {

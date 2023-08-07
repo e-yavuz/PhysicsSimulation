@@ -1,4 +1,3 @@
-#include <opencl-c-base.h>
 inline float2 circlesCollision(float2 objectPosition, float objectRadius, float2 otherPosition, float otherRadius)
 {
     float2 retval = objectPosition;
