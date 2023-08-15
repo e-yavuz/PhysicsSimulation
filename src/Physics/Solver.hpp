@@ -6,9 +6,10 @@
 #include <memory>
 #include <unordered_map>
 #include <utility>
+#include "../Shaders/OpenCL_Wrapper.hpp"
 
 template<typename T>
-class VertexContainer;
+class GraphicsContainer;
 
 #define GRAVITY vertex(0, -0.001f, 0)
 #define SPATIAL_HASH_GRANULARITY float(0.05f)
@@ -17,6 +18,8 @@ class VertexContainer;
 
 class Solver{
 public:
+    Solver() : kernel("src/Shaders/Collision.cl") {}
+
     void Update(int subSteps)
     {
         for(int i = 0; i < subSteps; i++)
@@ -53,7 +56,8 @@ public:
     uint32_t spatialHashLookupTable_B[SPATIAL_HASH_LOOKUP_TABLE_SIZE];
     uint32_t* spatialHashLookupTable_ptr;
     std::vector<std::pair<uint32_t, uint32_t>> objectsVertexIndicies;
-    VertexContainer<float>* vertices;
+    GraphicsContainer<float>* vertices;
+    OpenCL_WRAPPER kernel;
 private:
     void applyConstraints()
     {
@@ -83,31 +87,40 @@ private:
     void applyCollision()
     {
         // Spatial Hash CPU solution
-        applySpatialHash();
-        for(uint32_t y = 0; y < SPATIAL_HASH_TABLE_DIM_SIZE; y++)
-        {
-            for(uint32_t x = 0; x < SPATIAL_HASH_TABLE_DIM_SIZE; x++)
-            {
-                uint32_t spatialIndex = (y*SPATIAL_HASH_TABLE_DIM_SIZE*2) + (x*2);
-                for(int32_t i = spatialHashLookupTable_ptr[spatialIndex]; i < spatialHashLookupTable_ptr[spatialIndex]+spatialHashLookupTable_ptr[spatialIndex+1]; i++)
-                {
-                    int32_t objectIndex = spatialHashIndicies[i];
-                    checkSpatialHash(x, y, objectIndex);
+        // applySpatialHash();
+        // for(uint32_t y = 0; y < SPATIAL_HASH_TABLE_DIM_SIZE; y++)
+        // {
+        //     for(uint32_t x = 0; x < SPATIAL_HASH_TABLE_DIM_SIZE; x++)
+        //     {
+        //         uint32_t spatialIndex = (y*SPATIAL_HASH_TABLE_DIM_SIZE*2) + (x*2);
+        //         for(int32_t i = spatialHashLookupTable_ptr[spatialIndex]; i < spatialHashLookupTable_ptr[spatialIndex]+spatialHashLookupTable_ptr[spatialIndex+1]; i++)
+        //         {
+        //             int32_t objectIndex = spatialHashIndicies[i];
+        //             checkSpatialHash(x, y, objectIndex);
 
-                    checkSpatialHash(x, y+1, objectIndex);
-                    checkSpatialHash(x, y-1, objectIndex);
+        //             checkSpatialHash(x, y+1, objectIndex);
+        //             checkSpatialHash(x, y-1, objectIndex);
 
-                    checkSpatialHash(x+1, y, objectIndex);
-                    checkSpatialHash(x-1, y, objectIndex);
+        //             checkSpatialHash(x+1, y, objectIndex);
+        //             checkSpatialHash(x-1, y, objectIndex);
 
-                    checkSpatialHash(x+1, y+1, objectIndex);
-                    checkSpatialHash(x-1, y+1, objectIndex);
+        //             checkSpatialHash(x+1, y+1, objectIndex);
+        //             checkSpatialHash(x-1, y+1, objectIndex);
 
-                    checkSpatialHash(x+1, y-1, objectIndex);
-                    checkSpatialHash(x-1, y-1, objectIndex);
-                }
-            }
-        }
+        //             checkSpatialHash(x+1, y-1, objectIndex);
+        //             checkSpatialHash(x-1, y-1, objectIndex);
+        //         }
+        //     }
+        // }
+        float* hostRadiusObjects = circlesRadii.data();
+        float* hostInitPositions = (float*) objectsCurrentPosition.data();
+        // std::vector<vertex> FinalPositions(objectsCurrentPosition.size());
+        float* hostFinalPositions = (float*) objectsCurrentPosition.data();
+        uint N = objectsCurrentPosition.size();
+
+        kernel.RunKernel_naive_Update(hostRadiusObjects, hostInitPositions, hostFinalPositions, N);
+        
+        // objectsCurrentPosition = FinalPositions;
 
         // O(n^2) solution
         // for(uint32_t i = 0; i < objectsCurrentPosition.size(); i++)

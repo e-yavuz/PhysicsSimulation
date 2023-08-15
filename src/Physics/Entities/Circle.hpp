@@ -4,12 +4,12 @@
 #include "VerletObject.hpp"
 
 template<typename T>
-class VertexContainer;
+class GraphicsContainer;
 
 class Circle : public VerletObject
 {
 public:
-    static void buildCircle(vertex positionCurrent, float radius, int vCount, VertexContainer<float>* verticies)
+    static void buildCircle(vertex positionCurrent, float radius, int vCount, GraphicsContainer<float>* verticies)
     {
         if(vCount < 3)
             throw std::runtime_error("Must be at least 3 vertices");

@@ -113,10 +113,10 @@ public:
 };
 
 template<typename T1>
-class VertexContainer
+class GraphicsContainer
 {
     public: 
-        VertexContainer(unsigned int VBO, uint sz) : sz(sz), VBO(VBO)
+        GraphicsContainer(unsigned int VBO, uint sz) : sz(sz), VBO(VBO)
         {
             resize(sz);
             glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -125,7 +125,7 @@ class VertexContainer
             glEnableVertexAttribArray(0);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
-        VertexContainer(unsigned int VBO, uint sz, T1 val) : sz(sz), VBO(VBO)
+        GraphicsContainer(unsigned int VBO, uint sz, T1 val) : sz(sz), VBO(VBO)
         {
             resize(sz, val);
             glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -134,7 +134,7 @@ class VertexContainer
             glEnableVertexAttribArray(0);
             glBindBuffer(GL_ARRAY_BUFFER, 0);
         }
-        VertexContainer(unsigned int VBO) : sz(0), VBO(VBO) 
+        GraphicsContainer(unsigned int VBO) : sz(0), VBO(VBO) 
         {
             glBindBuffer(GL_ARRAY_BUFFER, VBO);
             glBufferData(GL_ARRAY_BUFFER, sizeof(T1)*capacity, data.data(), GL_DYNAMIC_DRAW);
@@ -172,7 +172,7 @@ class VertexContainer
         friend class GLFW_Wrapper;
     private:
         uint32_t sz;
-        uint32_t capacity = 50000;
+        uint32_t capacity = 1000000;
         unsigned int VBO;
 };
 
