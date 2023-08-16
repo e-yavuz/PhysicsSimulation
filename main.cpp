@@ -69,23 +69,23 @@ int main()
         auto start = std::chrono::high_resolution_clock::now();
         glfw.processInput();
         
-        if(solver.objectsCurrentPosition.size() < pow(2,2))
+        if(solver.objectsCurrentPosition.size() < (pow(2,20)))
         {
-            solver.addCircle(-0.9f,0.9f,0,0.1,40);
+            solver.addCircle(-0.9f,0.9f,0,0.01,40);
             solver.objectsAcceleration.back().x=0.2f;
         }
 
-        // if(solver.objectsCurrentPosition.size() < pow(2,20))
-        // {
-        //     solver.addCircle(-0.9f,0.7f,0,0.01,40);
-        //     solver.objectsAcceleration.back().x=0.2f;
-        // }
+        if(solver.objectsCurrentPosition.size() < pow(2,20))
+        {
+            solver.addCircle(-0.9f,0.7f,0,0.01,40);
+            solver.objectsAcceleration.back().x=0.2f;
+        }
 
-        // if(solver.objectsCurrentPosition.size() < pow(2,20))
-        // {
-        //     solver.addCircle(-0.9f,0.5f,0,0.01,40);
-        //     solver.objectsAcceleration.back().x=0.2f;
-        // }
+        if(solver.objectsCurrentPosition.size() < pow(2,20))
+        {
+            solver.addCircle(-0.9f,0.5f,0,0.01,40);
+            solver.objectsAcceleration.back().x=0.2f;
+        }
         
 
 

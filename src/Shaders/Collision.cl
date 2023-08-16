@@ -9,7 +9,7 @@ inline float3 circlesCollision(float3 objectPosition, float objectRadius, float3
     return retval;
 }
 
-#define local_size 32
+#define local_size 256
 
 __kernel void naive_Update(__global float* initPositions, __global float* finalPositions, __global float* radiusObjects, const uint N)
 {
@@ -26,13 +26,29 @@ __kernel void naive_Update(__global float* initPositions, __global float* finalP
     }
     
     //Single Block
-    for(ulong i = 0; i < N; i++)
+    for(ulong offset = 0; offset < N; offset+=local_size)
     {
-        float3 otherPosition = (float3)(initPositions[3*i],
-                                        initPositions[(3*i)+1],
-                                        initPositions[(3*i)+2]);
-        float otherRadius = radiusObjects[i];
-        thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        ulong access_global = offset+local_tx;
+        if(access_global >= N)
+            continue;
+
+        shared_pos[(3*local_tx)] = initPositions[(3*access_global)];
+        shared_pos[(3*local_tx)+1] = initPositions[(3*access_global)+1];
+        shared_pos[(3*local_tx)+2] = initPositions[(3*access_global)+2];
+        shared_radius[local_tx] = radiusObjects[access_global];
+
+        barrier(CLK_LOCAL_MEM_FENCE);
+
+        ulong iter_count = (N-offset)<local_size?N-offset:local_size;
+
+        for(ulong i = 0; i < iter_count; i++)
+        {
+            float3 otherPosition = (float3)(shared_pos[3*i],
+                                            shared_pos[(3*i)+1],
+                                            shared_pos[(3*i)+2]);
+            float otherRadius = shared_radius[i];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
     }
 
     if(tx < N)
@@ -42,57 +58,6 @@ __kernel void naive_Update(__global float* initPositions, __global float* finalP
         finalPositions[(3*tx)+2] = thisPosition.z;
     }
 }
-
-// __kernel void naive_Update(__global float* initPositions, __global float* finalPositions, __global float* radiusObjects, const uint N)
-// {
-//     __local float shared_pos[local_size*3];
-//     __local float shared_radius[local_size];
-//     ulong tx = get_global_id(0);
-//     ulong local_tx = get_local_id(0);
-//     float3 thisPosition;
-//     float thisRadius;
-//     if(tx < N)
-//     {
-//         thisPosition = (float3)(initPositions[3*tx], initPositions[(3*tx)+1], initPositions[(3*tx)+2]);
-//         thisRadius = radiusObjects[tx];
-//     }
-    
-//     //Single Block
-//     for(ulong offset = 0; offset < N; offset+=local_size)
-//     {
-//         ulong access_global = offset+local_tx;
-//         if(access_global < N)
-//         {
-//             shared_pos[(3*local_tx)] = initPositions[(3*access_global)];
-//             shared_pos[(3*local_tx)+1] = initPositions[(3*access_global)+1];
-//             shared_pos[(3*local_tx)+2] = initPositions[(3*access_global)+2];
-//             shared_pos[local_tx] = radiusObjects[access_global];
-//         }
-
-//         barrier(CLK_LOCAL_MEM_FENCE);
-        
-//         if(tx >= N)
-//             continue;
-
-//         for(ulong i = 0; i < 4; i++)
-//         {
-//             if(offset+i >= N)
-//                 break;
-//             float3 otherPosition = (float3)(shared_pos[3*i],
-//                                             shared_pos[(3*i)+1],
-//                                             shared_pos[(3*i)+2]);
-//             float otherRadius = radiusObjects[i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
-//         }
-//     }
-
-//     if(tx < N)
-//     {
-//         finalPositions[3*tx] = thisPosition.x;
-//         finalPositions[(3*tx)+1] = thisPosition.y;
-//         finalPositions[(3*tx)+2] = thisPosition.z;
-//     }
-// }
 
 
 // __kernel void spatial_Hash_Update(__global float3* initObjects, __global float3* finalObjects, __constant uint* blockMetadataIndex, __constant uint2* metaData, const uint2 metaDataDim)

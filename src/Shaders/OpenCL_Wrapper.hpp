@@ -120,7 +120,7 @@ public:
         // Execute the kernel over the entire range of our 1d input data set
         // using the maximum number of work group items for this device
         //
-        local = 32;
+        local = 256;
         ulong global = ((N/local)+1)*local;
         err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
         if (err)
