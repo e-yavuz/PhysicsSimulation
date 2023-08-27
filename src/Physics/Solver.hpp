@@ -12,13 +12,13 @@ template<typename T>
 class GraphicsContainer;
 
 #define GRAVITY vertex(0, -0.001f, 0)
-#define SPATIAL_HASH_GRANULARITY float(0.05f)
+#define SPATIAL_HASH_GRANULARITY float(0.02f)
 #define SPATIAL_HASH_TABLE_DIM_SIZE (int32_t(2.0f/SPATIAL_HASH_GRANULARITY))
 #define SPATIAL_HASH_LOOKUP_TABLE_SIZE int32_t(SPATIAL_HASH_TABLE_DIM_SIZE*SPATIAL_HASH_TABLE_DIM_SIZE*2)
 
 class Solver{
 public:
-    Solver() : kernel("src/Shaders/Collision.cl") {}
+    Solver() : kernel("src/Shaders/Collision.cl", 4) {}
 
     void Update(int subSteps)
     {
@@ -26,7 +26,8 @@ public:
         {
             applyUpdate(1.0f/subSteps);
             applyConstraints();
-            applyCollision();
+            // Change Collision Computation Type Here
+            applyCPUSpatialHashCollision();
             applyGravity();
             applyConstraints();
             applyDraw();
@@ -84,48 +85,87 @@ private:
         }
     }
 
-    void applyCollision()
+    void applyNaiveCPUCollision()
     {
-        // Spatial Hash CPU solution
-        // applySpatialHash();
-        // for(uint32_t y = 0; y < SPATIAL_HASH_TABLE_DIM_SIZE; y++)
-        // {
-        //     for(uint32_t x = 0; x < SPATIAL_HASH_TABLE_DIM_SIZE; x++)
-        //     {
-        //         uint32_t spatialIndex = (y*SPATIAL_HASH_TABLE_DIM_SIZE*2) + (x*2);
-        //         for(int32_t i = spatialHashLookupTable_ptr[spatialIndex]; i < spatialHashLookupTable_ptr[spatialIndex]+spatialHashLookupTable_ptr[spatialIndex+1]; i++)
-        //         {
-        //             int32_t objectIndex = spatialHashIndicies[i];
-        //             checkSpatialHash(x, y, objectIndex);
+        for(uint32_t i = 0; i < objectsCurrentPosition.size(); i++)
+            for(uint32_t j = 0; j < objectsCurrentPosition.size(); j++)
+                checkCollision(i, j);
+    }
 
-        //             checkSpatialHash(x, y+1, objectIndex);
-        //             checkSpatialHash(x, y-1, objectIndex);
+    void applyCPUSpatialHashCollision()
+    {
+        applySpatialHash();
+        for(uint32_t y = 0; y < SPATIAL_HASH_TABLE_DIM_SIZE; y++)
+        {
+            for(uint32_t x = 0; x < SPATIAL_HASH_TABLE_DIM_SIZE; x++)
+            {
+                uint32_t spatialIndex = (y*SPATIAL_HASH_TABLE_DIM_SIZE*2) + (x*2);
+                for(int32_t i = spatialHashLookupTable_ptr[spatialIndex]; i < spatialHashLookupTable_ptr[spatialIndex]+spatialHashLookupTable_ptr[spatialIndex+1]; i++)
+                {
+                    int32_t objectIndex = spatialHashIndicies[i];
+                    checkSpatialHash(x, y, objectIndex);
 
-        //             checkSpatialHash(x+1, y, objectIndex);
-        //             checkSpatialHash(x-1, y, objectIndex);
+                    checkSpatialHash(x, y+1, objectIndex);
+                    checkSpatialHash(x, y-1, objectIndex);
 
-        //             checkSpatialHash(x+1, y+1, objectIndex);
-        //             checkSpatialHash(x-1, y+1, objectIndex);
+                    checkSpatialHash(x+1, y, objectIndex);
+                    checkSpatialHash(x-1, y, objectIndex);
 
-        //             checkSpatialHash(x+1, y-1, objectIndex);
-        //             checkSpatialHash(x-1, y-1, objectIndex);
-        //         }
-        //     }
-        // }
+                    checkSpatialHash(x+1, y+1, objectIndex);
+                    checkSpatialHash(x-1, y+1, objectIndex);
+
+                    checkSpatialHash(x+1, y-1, objectIndex);
+                    checkSpatialHash(x-1, y-1, objectIndex);
+                }
+            }
+        }
+    }
+
+    void applyGPUNaiveCollision()
+    {
         float* hostRadiusObjects = circlesRadii.data();
         float* hostInitPositions = (float*) objectsCurrentPosition.data();
-        // std::vector<vertex> FinalPositions(objectsCurrentPosition.size());
         float* hostFinalPositions = (float*) objectsCurrentPosition.data();
+        
         uint N = objectsCurrentPosition.size();
 
         kernel.RunKernel_naive_Update(hostRadiusObjects, hostInitPositions, hostFinalPositions, N);
-        
-        // objectsCurrentPosition = FinalPositions;
+    }
 
-        // O(n^2) solution
-        // for(uint32_t i = 0; i < objectsCurrentPosition.size(); i++)
-        //     for(uint32_t j = 0; j < objectsCurrentPosition.size(); j++)
-        //         checkCollision(i, j);
+    void applyGPUSpatialHashCollision()
+    {
+        applySpatialHash();
+        float* hostRadiusObjects = circlesRadii.data();
+        float* hostInitPositions = (float*) objectsCurrentPosition.data();
+        float* hostFinalPositions = (float*) objectsCurrentPosition.data();
+        uint2* hostspatialHashGridMetaData = (uint2*) spatialHashLookupTable_ptr;
+        ulong threadBlockCount = 0;
+        std::vector<uint32_t> hostthreadBlockToSpatialHashMetaData;
+        for(int i = 0; i < SPATIAL_HASH_LOOKUP_TABLE_SIZE; i+=2)
+        {
+            if(spatialHashLookupTable_ptr[i+1] == 0)
+                continue;
+            
+            for(int j = 0; j < spatialHashLookupTable_ptr[i+1]; j += kernel.localBlockSize)
+            {
+                hostthreadBlockToSpatialHashMetaData.push_back(j);
+                hostthreadBlockToSpatialHashMetaData.push_back(i/2);
+                threadBlockCount++;
+            }
+        }
+
+        uint N = objectsCurrentPosition.size();
+
+        kernel.RunKernel_Spatial_Hash(
+            hostRadiusObjects, 
+            hostInitPositions, 
+            hostFinalPositions,
+            spatialHashIndicies.data(),
+            (uint2*) hostthreadBlockToSpatialHashMetaData.data(), 
+            hostspatialHashGridMetaData,
+            SPATIAL_HASH_TABLE_DIM_SIZE, 
+            N,
+            threadBlockCount);
     }
 
     void checkSpatialHash(uint32_t x, uint32_t y, uint32_t objectIndex)

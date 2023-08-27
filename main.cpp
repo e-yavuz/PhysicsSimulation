@@ -119,7 +119,6 @@ int main()
         
     }
     std::cout << solver.objectsCurrentPosition.size() <<"\n";
-    // std::cout << solver.spatialHash.size();
 
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);

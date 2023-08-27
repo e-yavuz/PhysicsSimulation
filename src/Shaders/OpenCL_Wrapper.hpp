@@ -1,6 +1,7 @@
 #ifndef OPENCL_WRAPPER_HPP
 #define OPENCL_WRAPPER_HPP
 
+#include <cassert>
 #include <fcntl.h>
 #include <stdexcept>
 #include <stdio.h>
@@ -19,7 +20,7 @@ class OpenCL_WRAPPER
 {
 public:
     OpenCL_WRAPPER() {}
-    OpenCL_WRAPPER(std::string kernelFile)
+    OpenCL_WRAPPER(std::string kernelFile, ulong localBlockSize) : localBlockSize(localBlockSize)
     {
         std::ifstream in(kernelFile);
         content = std::string((std::istreambuf_iterator<char>(in)), 
@@ -60,26 +61,33 @@ public:
             char buffer[2048];
     
             clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
-            printf("%s\n", buffer);
+            printf("OPENCL: %s\n", buffer);
             throw(std::runtime_error("Error: Failed to build program executable!\n"));
         }
     
-        // Create the compute kernel in the program we wish to run
+        // Create the Naive compute kernel in the program we wish to run
         //
-        kernel = clCreateKernel(program, "naive_Update", &err);
-        if (!kernel || err != CL_SUCCESS)
+        naiveKernel = clCreateKernel(program, "naive_Update", &err);
+        if (!naiveKernel || err != CL_SUCCESS)
+            throw(std::runtime_error("Error: Failed to create compute kernel!\n"));
+
+        // Create the Spatial Hash compute kernel in the program we wish to run
+        //
+        spatialHashKernel = clCreateKernel(program, "spatial_Hash_Update", &err);
+        if (!spatialHashKernel || err != CL_SUCCESS)
             throw(std::runtime_error("Error: Failed to create compute kernel!\n"));
     }
 
     ~OpenCL_WRAPPER()
     {
         clReleaseProgram(program);
-        clReleaseKernel(kernel);
+        clReleaseKernel(naiveKernel);
+        clReleaseKernel(spatialHashKernel);
         clReleaseCommandQueue(commands);
         clReleaseContext(context);
     }
 
-    void RunKernel_naive_Update(float* hostRadiusObjects, float* hostInitPositions, float* hostFinalPositions, uint N)
+    void RunKernel_naive_Update(float* hostRadiusObjects, float* hostInitPositions, float* hostFinalPositions, const uint N)
     {
         cl_mem deviceRadiusObjects;
         cl_mem deviceInitPositions;
@@ -101,30 +109,30 @@ public:
         if (err != CL_SUCCESS)
             throw(std::runtime_error("Error: Failed to write to source array!\n"));
     
-        // Set the arguments to our compute kernel
+        // Set the arguments to our compute naiveKernel
         //
         err = 0;
-        err  = clSetKernelArg(kernel, 0, sizeof(cl_mem), &deviceInitPositions);
-        err  |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &deviceFinalPositions);
-        err  |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &deviceRadiusObjects);
-        err |= clSetKernelArg(kernel, 3, sizeof(uint), &N);
+        err  = clSetKernelArg(naiveKernel, 0, sizeof(cl_mem), &deviceInitPositions);
+        err  |= clSetKernelArg(naiveKernel, 1, sizeof(cl_mem), &deviceFinalPositions);
+        err  |= clSetKernelArg(naiveKernel, 2, sizeof(cl_mem), &deviceRadiusObjects);
+        err |= clSetKernelArg(naiveKernel, 3, sizeof(uint), &N);
         if (err != CL_SUCCESS)
-            throw(std::runtime_error("Error: Failed to set kernel arguments!"));
+            throw(std::runtime_error("Error: Failed to set naiveKernel arguments!"));
     
-        // Get the maximum work group size for executing the kernel on the device
+        // Get the maximum work group size for executing the naiveKernel on the device
         //
-        err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
+        err = clGetKernelWorkGroupInfo(naiveKernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
         if (err != CL_SUCCESS)
-            throw(std::runtime_error("Error: Failed to retrieve kernel work group info!"));
+            throw(std::runtime_error("Error: Failed to retrieve naiveKernel work group info!"));
     
-        // Execute the kernel over the entire range of our 1d input data set
+        // Execute the naiveKernel over the entire range of our 1d input data set
         // using the maximum number of work group items for this device
         //
-        local = 256;
-        ulong global = ((N/local)+1)*local;
-        err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
+        local = 16;
+        ulong globalThreadCount = ((N/local)+1)*local;
+        err = clEnqueueNDRangeKernel(commands, naiveKernel, 1, NULL, &globalThreadCount, &local, 0, NULL, NULL);
         if (err)
-            throw(std::runtime_error("Error: Failed to execute kernel!\n ERR: " + std::to_string(err)));
+            throw(std::runtime_error("Error: Failed to execute naiveKernel!\n ERR: " + std::to_string(err)));
     
         // Wait for the command commands to get serviced before reading back results
         //
@@ -140,6 +148,85 @@ public:
         clReleaseMemObject(deviceInitPositions);
         clReleaseMemObject(deviceFinalPositions);
     }
+
+    void RunKernel_Spatial_Hash(float* hostRadiusObjects, float* hostInitPositions, float* hostFinalPositions, uint* hostSpatialIndicies, uint2* hostthreadBlockToSpatialHashMetaData, uint2* hostspatialHashGridMetaData, const uint spatialHashGridDim, const uint N, const ulong threadBlockCount)
+    {
+        cl_mem deviceRadiusObjects;
+        cl_mem deviceInitPositions;
+        cl_mem deviceFinalPositions;
+        cl_mem devicethreadBlockToSpatialHashMetaData;
+        cl_mem devicespatialHashGridMetaData;
+        cl_mem deviceSpatialIndicies;
+        ulong local;
+        uint gridCount = spatialHashGridDim * spatialHashGridDim;
+
+        // Create the input and output arrays in device memory for our calculation
+        //
+        deviceRadiusObjects = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(cl_float) * N, NULL, NULL);
+        deviceInitPositions = clCreateBuffer(context,  CL_MEM_READ_ONLY,  3*sizeof(cl_float) * N, NULL, NULL);
+        deviceFinalPositions = clCreateBuffer(context,  CL_MEM_WRITE_ONLY, 3*sizeof(cl_float) * N, NULL, NULL);
+        deviceSpatialIndicies = clCreateBuffer(context,  CL_MEM_READ_ONLY, sizeof(cl_uint) * N, NULL, NULL);
+        devicethreadBlockToSpatialHashMetaData = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(cl_uint2) * threadBlockCount, NULL, NULL);
+        devicespatialHashGridMetaData = clCreateBuffer(context,  CL_MEM_READ_ONLY, sizeof(cl_uint2) * gridCount, NULL, NULL);
+        if (!deviceRadiusObjects || !deviceInitPositions || !deviceFinalPositions)
+            throw(std::runtime_error("Error: Failed to allocate device memory!\n"));
+        
+        // Write our data set into the input array in device memory 
+        //
+        err = clEnqueueWriteBuffer(commands, deviceRadiusObjects, CL_TRUE, 0, sizeof(cl_float) * N, hostRadiusObjects, 0, NULL, NULL);
+        err |= clEnqueueWriteBuffer(commands, deviceInitPositions, CL_TRUE, 0, 3*sizeof(cl_float) * N, hostInitPositions, 0, NULL, NULL);
+        err |= clEnqueueWriteBuffer(commands, deviceFinalPositions, CL_TRUE, 0, 3*sizeof(cl_float) * N, hostFinalPositions, 0, NULL, NULL);
+        err |= clEnqueueWriteBuffer(commands, deviceSpatialIndicies, CL_TRUE, 0, sizeof(cl_uint) * N, hostSpatialIndicies, 0, NULL, NULL);
+        err |= clEnqueueWriteBuffer(commands, devicethreadBlockToSpatialHashMetaData, CL_TRUE, 0, sizeof(cl_uint2) * threadBlockCount, hostthreadBlockToSpatialHashMetaData, 0, NULL, NULL);
+        err |= clEnqueueWriteBuffer(commands, devicespatialHashGridMetaData, CL_TRUE, 0, sizeof(cl_uint2) * gridCount, hostspatialHashGridMetaData, 0, NULL, NULL);
+        if (err != CL_SUCCESS)
+            throw(std::runtime_error("Error: Failed to write to source array!\n"));
+    
+        // Set the arguments to our compute spatialHashKernel
+        //
+        err = 0;
+        err  = clSetKernelArg(spatialHashKernel, 0, sizeof(cl_mem), &deviceInitPositions);
+        err  |= clSetKernelArg(spatialHashKernel, 1, sizeof(cl_mem), &deviceFinalPositions);
+        err  |= clSetKernelArg(spatialHashKernel, 2, sizeof(cl_mem), &deviceRadiusObjects);
+        err  |= clSetKernelArg(spatialHashKernel, 3, sizeof(cl_mem), &deviceSpatialIndicies);
+        err  |= clSetKernelArg(spatialHashKernel, 4, sizeof(cl_mem), &devicethreadBlockToSpatialHashMetaData);
+        err  |= clSetKernelArg(spatialHashKernel, 5, sizeof(cl_mem), &devicespatialHashGridMetaData);
+        err |= clSetKernelArg(spatialHashKernel, 6, sizeof(uint), &spatialHashGridDim);
+        if (err != CL_SUCCESS)
+            throw(std::runtime_error("Error: Failed to set spatialHashKernel arguments!"));
+
+        // Initalize local threadBlock size
+        //
+        local = localBlockSize;
+        ulong globalThreadCount = threadBlockCount*local;
+    
+        // Execute the spatialHashKernel over the entire range of our 1d input data set
+        // using the maximum number of work group items for this device
+        //
+        err = clEnqueueNDRangeKernel(commands, spatialHashKernel, 1, NULL, &globalThreadCount, &local, 0, NULL, NULL);
+        if (err)
+            throw(std::runtime_error("Error: Failed to execute spatialHashKernel!\n ERR: " + std::to_string(err)));
+    
+        // Wait for the command commands to get serviced before reading back results
+        //
+        clFinish(commands);
+
+        // Read back the results from the device
+        //
+        err = clEnqueueReadBuffer( commands, deviceFinalPositions, CL_TRUE, 0, 3 * sizeof(cl_float) * N, hostFinalPositions, 0, NULL, NULL );
+        if (err != CL_SUCCESS)
+            throw(std::runtime_error("Error: Failed to read output array! %d\n"));
+
+        clReleaseMemObject(deviceRadiusObjects);
+        clReleaseMemObject(deviceInitPositions);
+        clReleaseMemObject(deviceFinalPositions);
+        clReleaseMemObject(devicethreadBlockToSpatialHashMetaData);
+        clReleaseMemObject(devicespatialHashGridMetaData);
+    }
+    
+
+    ulong localBlockSize;
+
 private:
     int err;                            // error code returned from api calls
     uint correct;                       // number of correct results returned
@@ -148,7 +235,8 @@ private:
     cl_context context;                 // compute context
     cl_command_queue commands;          // compute command queue
     cl_program program;                 // compute program
-    cl_kernel kernel;                   // compute kernel
+    cl_kernel naiveKernel;              // Naive compute kernel
+    cl_kernel spatialHashKernel;        // Spatial Hash compute kernel
     std::string content;                // kernel tokens
 };
 

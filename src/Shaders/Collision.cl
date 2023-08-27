@@ -9,168 +9,188 @@ inline float3 circlesCollision(float3 objectPosition, float objectRadius, float3
     return retval;
 }
 
-#define local_size 256
-
-__kernel void naive_Update(__global float* initPositions, __global float* finalPositions, __global float* radiusObjects, const uint N)
+__kernel void spatial_Hash_Update(__global float* initPositions, __global float* finalPositions, __global float* radiusObjects, __global uint* spatialIndicies, __global uint2* threadBlockToSpatialHashMetaData, __global uint2* spatialHashGridMetaData, const uint spatialHashGridWidth)
 {
-    __local float shared_pos[local_size*3];
-    __local float shared_radius[local_size];
-    ulong tx = get_global_id(0);
+    ulong bx = get_group_id(0);
     ulong local_tx = get_local_id(0);
-    float3 thisPosition;
-    float thisRadius;
-    if(tx < N)
-    {
-        thisPosition = (float3)(initPositions[3*tx], initPositions[(3*tx)+1], initPositions[(3*tx)+2]);
-        thisRadius = radiusObjects[tx];
-    }
+
+    // x: offset in block
+    // y: block Index
+    uint2 thisThreadBlockToSpatialHashMetaData = threadBlockToSpatialHashMetaData[bx];
+    uint indexOfBlock = thisThreadBlockToSpatialHashMetaData[1];
     
-    //Single Block
-    for(ulong offset = 0; offset < N; offset+=local_size)
+    // x: starting index of block
+    // y: size of block
+    uint2 middleBlock = spatialHashGridMetaData[indexOfBlock];
+
+    if(thisThreadBlockToSpatialHashMetaData[0]+local_tx >= middleBlock[1])
+        return;
+
+    uint thisIndex = spatialIndicies[middleBlock[0]+thisThreadBlockToSpatialHashMetaData[0]+local_tx];
+
+    float3 thisPosition = (float3)(initPositions[3*thisIndex], initPositions[(3*thisIndex)+1], initPositions[(3*thisIndex)+2]);
+    float thisRadius = radiusObjects[thisIndex];
+
+    //NorthWest Block
+    if(indexOfBlock >= spatialHashGridWidth && indexOfBlock % spatialHashGridWidth != 0)
     {
-        ulong access_global = offset+local_tx;
-        if(access_global >= N)
-            continue;
-
-        shared_pos[(3*local_tx)] = initPositions[(3*access_global)];
-        shared_pos[(3*local_tx)+1] = initPositions[(3*access_global)+1];
-        shared_pos[(3*local_tx)+2] = initPositions[(3*access_global)+2];
-        shared_radius[local_tx] = radiusObjects[access_global];
-
-        barrier(CLK_LOCAL_MEM_FENCE);
-
-        ulong iter_count = (N-offset)<local_size?N-offset:local_size;
-
-        for(ulong i = 0; i < iter_count; i++)
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock-spatialHashGridWidth-1];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
         {
-            float3 otherPosition = (float3)(shared_pos[3*i],
-                                            shared_pos[(3*i)+1],
-                                            shared_pos[(3*i)+2]);
-            float otherRadius = shared_radius[i];
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
             thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
         }
     }
 
-    if(tx < N)
+    //North Block
+    if(indexOfBlock >= spatialHashGridWidth)
     {
-        finalPositions[3*tx] = thisPosition.x;
-        finalPositions[(3*tx)+1] = thisPosition.y;
-        finalPositions[(3*tx)+2] = thisPosition.z;
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock-spatialHashGridWidth];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
+        {
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
     }
+
+    //NorthEast Block
+    if(indexOfBlock >= spatialHashGridWidth && indexOfBlock % spatialHashGridWidth != spatialHashGridWidth-1)
+    {
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock-spatialHashGridWidth+1];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
+        {
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
+    }
+
+    //West Block
+    if(indexOfBlock % spatialHashGridWidth != 0)
+    {
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock-1];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
+        {
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
+    }
+
+    // //Middle Block
+    for(int i = middleBlock[0]; i < middleBlock[0]+middleBlock[1]; i++)
+    {
+        uint otherIndex = spatialIndicies[i];
+        float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+        float otherRadius = radiusObjects[otherIndex];
+        thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+    }
+
+    //East Block
+    if(indexOfBlock % spatialHashGridWidth != spatialHashGridWidth-1)
+    {
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock+1];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
+        {
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
+    }
+
+    //SouthWest Block
+    if(indexOfBlock < (spatialHashGridWidth-1)*spatialHashGridWidth && indexOfBlock % spatialHashGridWidth != 0)
+    {
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock+spatialHashGridWidth-1];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
+        {
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
+    }
+
+    //South Block
+    if(indexOfBlock < (spatialHashGridWidth-1)*spatialHashGridWidth)
+    {
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock+spatialHashGridWidth];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
+        {
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
+    }
+
+    //SouthEast Block
+    if(indexOfBlock < (spatialHashGridWidth-1)*spatialHashGridWidth && indexOfBlock % spatialHashGridWidth != spatialHashGridWidth-1)
+    {
+        uint2 loopBlock = spatialHashGridMetaData[indexOfBlock+spatialHashGridWidth+1];
+        for(int i = loopBlock[0]; i < loopBlock[1]+loopBlock[0]; i++)
+        {
+            uint otherIndex = spatialIndicies[i];
+            float3 otherPosition = (float3)(initPositions[3*otherIndex],
+                                            initPositions[(3*otherIndex)+1],
+                                            initPositions[(3*otherIndex)+2]);
+            float otherRadius = radiusObjects[otherIndex];
+            thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+        }
+    }
+    
+    finalPositions[3*thisIndex] = thisPosition.x;
+    finalPositions[(3*thisIndex)+1] = thisPosition.y;
+    finalPositions[(3*thisIndex)+2] = thisPosition.z;
 }
 
+__kernel void naive_Update(__global float* initPositions, __global float* finalPositions, __global float* radiusObjects, const uint N)
+{
+    ulong tx = get_global_id(0);
+    ulong local_tx = get_local_id(0);
+    float3 thisPosition;
+    float thisRadius;
 
-// __kernel void spatial_Hash_Update(__global float3* initObjects, __global float3* finalObjects, __constant uint* blockMetadataIndex, __constant uint2* metaData, const uint2 metaDataDim)
-// {
-//     ulong bx = get_group_id(0);
-
-//     uint blockIndex = blockMetadataIndex[bx];
-
+    if(tx >= N)
+        return;
     
-//     uint2 middleBlock = metaData[blockIndex];
-
-//     float3 thisObject = initObjects[middleBlock.y+get_local_id(0)];
-//     float2 thisPosition = (float2)(thisObject.x, thisObject.y);
-//     float thisRadius = thisObject.z;
-
-//     //NorthWest Block
-//     if(blockIndex >= metaDataDim.y && blockIndex % metaDataDim.y != 0)
-//     {
-//         uint2 loopBlock = metaData[blockIndex-metaDataDim.y-1];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
-//     //North Block
-//     if(blockIndex >= metaDataDim.y)
-//     {
-//         uint2 loopBlock = metaData[blockIndex-metaDataDim.y];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
-//     //NorthEast Block
-//     if(blockIndex >= metaDataDim.y && blockIndex % metaDataDim.y != metaDataDim.y-1)
-//     {
-//         uint2 loopBlock = metaData[blockIndex-metaDataDim.y+1];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
-//     //West Block
-//     if(blockIndex % metaDataDim.y != 0)
-//     {
-//         uint2 loopBlock = metaData[blockIndex-1];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
-//     //Middle Block
-//     for(int i = 0; i < middleBlock.x; i++)
-//     {
-//         if( i == middleBlock.y+get_local_id(0) )
-//             continue;
-//         float3 otherObject = initObjects[middleBlock.y+i];
-//         thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//     }
-
-//     //East Block
-//     if(blockIndex % metaDataDim.y != metaDataDim.y-1)
-//     {
-//         uint2 loopBlock = metaData[blockIndex+1];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
-//     //SouthWest Block
-//     if(blockIndex < (metaDataDim.x-1)*metaDataDim.y && blockIndex % metaDataDim.y != 0)
-//     {
-//         uint2 loopBlock = metaData[blockIndex+metaDataDim.y-1];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
-//     //South Block
-//     if(blockIndex < (metaDataDim.y-1)*metaDataDim.y)
-//     {
-//         uint2 loopBlock = metaData[blockIndex+metaDataDim.y];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
-//     //SouthEast Block
-//     if(blockIndex < (metaDataDim.x-1)*metaDataDim.y && blockIndex % metaDataDim.y != metaDataDim.y-1)
-//     {
-//         uint2 loopBlock = metaData[blockIndex+metaDataDim.y+1];
-//         for(int i = 0; i < loopBlock.x; i++)
-//         {
-//             float3 otherObject = initObjects[loopBlock.y+i];
-//             thisPosition = circlesCollision(thisPosition, thisRadius, (float2)(otherObject.x, otherObject.y), otherObject.z);
-//         }
-//     }
-
+    thisPosition = (float3)(initPositions[3*tx], initPositions[(3*tx)+1], initPositions[(3*tx)+2]);
+    thisRadius = radiusObjects[tx];
     
-//     finalObjects[middleBlock.y+get_local_id(0)].x = thisPosition.x;
-//     finalObjects[middleBlock.y+get_local_id(0)].y = thisPosition.y;
-// }
+    //Single Block
+    for(ulong i = 0; i < N; i++)
+    {
+        float3 otherPosition = (float3)(initPositions[3*i],
+                                        initPositions[(3*i)+1],
+                                        initPositions[(3*i)+2]);
+        float otherRadius = radiusObjects[i];
+        thisPosition = circlesCollision(thisPosition, thisRadius, otherPosition, otherRadius);
+    }
+
+    finalPositions[3*tx] = thisPosition.x;
+    finalPositions[(3*tx)+1] = thisPosition.y;
+    finalPositions[(3*tx)+2] = thisPosition.z;
+}
