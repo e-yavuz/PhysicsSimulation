@@ -28,6 +28,9 @@ public:
             applyConstraints();
             // Change Collision Computation Type Here
             applyCPUSpatialHashCollision();
+            // applyGPUSpatialHashCollision();
+            // applyNaiveCPUCollision();
+            // applyGPUNaiveCollision();
             applyGravity();
             applyConstraints();
             applyDraw();
