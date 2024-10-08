@@ -69,27 +69,29 @@ int main()
         auto start = std::chrono::high_resolution_clock::now();
         glfw.processInput();
         
-        if(solver.objectsCurrentPosition.size() < (pow(2,20)))
+        if(solver.objectsCurrentPosition.size() < (pow(2,10)))
         {
-            solver.addCircle(-0.9f,0.9f,0,0.01,40);
+            solver.addCircle(-0.9f,0.9f,0,0.01,20);
             solver.objectsAcceleration.back().x=0.2f;
         }
 
-        if(solver.objectsCurrentPosition.size() < pow(2,20))
+        if(solver.objectsCurrentPosition.size() < pow(2,8))
         {
-            solver.addCircle(-0.9f,0.7f,0,0.01,40);
+            solver.addCircle(-0.9f,0.7f,0,0.02,40);
             solver.objectsAcceleration.back().x=0.2f;
         }
 
-        if(solver.objectsCurrentPosition.size() < pow(2,20))
+        if(solver.objectsCurrentPosition.size() < pow(2,5))
         {
-            solver.addCircle(-0.9f,0.5f,0,0.01,40);
+            solver.addCircle(-0.9f,0.5f,0,0.04,80);
             solver.objectsAcceleration.back().x=0.2f;
         }
+
+        // PFNGLCOLOR4UIVPROC
         
 
 
-        solver.Update(8);
+        solver.Update(20);
         
         // rendering commands here
         //
